@@ -70,8 +70,6 @@
   .link-btn{background:none;border:0;font-family:inherit;font-size:12px;color:var(--text-faint);cursor:pointer;margin-top:14px;text-decoration:underline;}
   .link-btn:hover{color:var(--gold-text);}
   .err{color:#991b1b;}
-  .or-sep{display:flex;align-items:center;gap:12px;margin:2px 0 14px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-faint);}
-  .or-sep::before,.or-sep::after{content:'';flex:1;height:1px;background:rgba(125,87,38,.25);}
   .stack{display:flex;flex-direction:column;gap:10px;}
   @media (max-width:640px){.form-card{padding:32px 22px;}.chips{grid-template-columns:repeat(4,1fr);}}
 </style>
@@ -136,11 +134,6 @@
             <div class="input-group">
               <label for="clientSel">Which client?</label>
               <select id="clientSel"></select>
-            </div>
-            <div class="or-sep"><span>or</span></div>
-            <div class="input-group">
-              <label for="prospectIn">Potential client</label>
-              <input type="text" id="prospectIn" maxlength="80" autocomplete="off" placeholder="Type the name of a prospect you're in talks with">
             </div>
             <div class="step-nav">
               <button type="button" class="ghost-btn step-back-btn" data-go="rm">Back</button>
@@ -209,7 +202,7 @@
     const ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbxuAb2ncBt-Ou5CBv-DPq-91f6UfkVsFoUsG0dbm_uZwgE9wOgKoyowCVBHwYMdfyCl/exec";
 
     const $ = (id) => document.getElementById(id);
-    const rmSel = $('rmSel'), clientSel = $('clientSel'), prospectIn = $('prospectIn');
+    const rmSel = $('rmSel'), clientSel = $('clientSel');
     const STEP_ORDER = ['rm', 'client', 'status', 'guests'];
     let data = [];            // [{name, clients:[{name,status,guests}]}]
     let rm = null, client = null, pendingPayload = null;
@@ -246,8 +239,7 @@
     }
     function fillClients() {
       clientSel.innerHTML = '<option value="" disabled selected>Select a client</option>';
-      rm.clients.forEach((c, i) => clientSel.add(new Option(c.name + (c.prospect ? ' (Prospect)' : '') + statusLabel(c), i)));
-      prospectIn.value = '';
+      rm.clients.forEach((c, i) => clientSel.add(new Option(c.name + statusLabel(c), i)));
     }
 
     function loadList() {
@@ -290,32 +282,24 @@
     rmSel.addEventListener('change', rmNext);
 
     // ---------- step 2: client ----------
-    const cleanName = (v) => v.replace(/\s+/g, ' ').replace(/^[=+\-@\s]+/, '').trim();
     function clientNext() {
-      const typed = cleanName(prospectIn.value);
-      if (typed) {
-        // a name already in this RM's list (client or earlier prospect) is reused, not duplicated
-        client = rm.clients.find((c) => c.name.toLowerCase() === typed.toLowerCase()) || { name: typed, prospect: true, isNew: true, status: '', guests: '' };
-      } else if (clientSel.value !== '') {
-        client = rm.clients[+clientSel.value];
-      } else { clientSel.focus(); return; }
-      const line = '<b>' + esc(client.name) + '</b>' + (client.prospect ? ' · Prospect' : '') + (client.status ? '<br>Currently: ' + esc(statusLabel(client).replace(' — ', '')) : '');
+      if (clientSel.value === '') { clientSel.focus(); return; }
+      client = rm.clients[+clientSel.value];
+      const line = '<b>' + esc(client.name) + '</b>' + (client.status ? '<br>Currently: ' + esc(statusLabel(client).replace(' — ', '')) : '');
       $('ctxStatus').innerHTML = line;
       document.querySelectorAll('#statusList .opt').forEach((o) => o.classList.remove('sel'));
       pendingStatus = '';
       showStep('status');
     }
     $('clientNext').addEventListener('click', clientNext);
-    clientSel.addEventListener('change', () => { prospectIn.value = ''; clientNext(); });
-    prospectIn.addEventListener('input', () => { if (prospectIn.value) clientSel.selectedIndex = 0; });
-    prospectIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); clientNext(); } });
+    clientSel.addEventListener('change', clientNext);
 
     // ---------- step 3: status ----------
     document.querySelectorAll('#statusList .opt').forEach((btn) => btn.addEventListener('click', () => {
       document.querySelectorAll('#statusList .opt').forEach((o) => o.classList.toggle('sel', o === btn));
       pendingStatus = btn.dataset.status;
       if (pendingStatus === 'Confirmed') {
-        $('ctxGuests').innerHTML = '<b>' + esc(client.name) + '</b>' + (client.prospect ? ' · Prospect' : '') + ' · Confirmed';
+        $('ctxGuests').innerHTML = '<b>' + esc(client.name) + '</b> · Confirmed';
         document.querySelectorAll('#chips .chip').forEach((c) => c.classList.remove('sel'));
         $('otherRow').classList.remove('show'); $('otherNum').value = '';
         showStep('guests');
@@ -378,17 +362,16 @@
     }
 
     function save(answer) {
-      pendingPayload = { rm: rm.name, client: client.name, prospect: !!client.prospect, status: answer.status, guests: answer.guests, submittedAt: new Date().toISOString() };
+      pendingPayload = { rm: rm.name, client: client.name, status: answer.status, guests: answer.guests, submittedAt: new Date().toISOString() };
       doSave();
     }
     function doSave() {
       $('savingMsg').textContent = 'Saving ' + pendingPayload.client + '…';
       showPanel('savingPanel');
       post(pendingPayload).then(() => {
-        if (client.isNew) { delete client.isNew; rm.clients.push(client); }   // show new prospects in the dropdown right away
         client.status = pendingPayload.status;
         client.guests = pendingPayload.guests;
-        $('doneMsg').innerHTML = '<b>' + esc(client.name) + '</b>' + (client.prospect ? ' · Prospect' : '') + '<br>' +
+        $('doneMsg').innerHTML = '<b>' + esc(client.name) + '</b><br>' +
           (client.status === 'Confirmed' ? 'Confirmed · ' + client.guests + (client.guests === 1 ? ' person' : ' people')
             : client.status === 'Pending' ? 'Pending' : 'Not coming');
         showPanel('donePanel');
